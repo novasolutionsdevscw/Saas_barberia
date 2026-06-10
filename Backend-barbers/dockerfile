@@ -1,0 +1,33 @@
+FROM php:8.2-fpm-alpine
+
+RUN apk add --no-cache \
+    nginx \
+    curl \
+    zip \
+    unzip \
+    git \
+    oniguruma-dev \
+    libxml2-dev \
+    && docker-php-ext-install pdo pdo_mysql mbstring xml bcmath opcache
+
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www/html
+
+COPY . .
+
+RUN composer install --optimize-autoloader --no-dev --no-interaction
+
+RUN touch .env \
+    && php artisan key:generate
+
+RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
+    && php artisan storage:link --force
+
+COPY docker/nginx.conf /etc/nginx/nginx.conf
+COPY docker/start.sh /start.sh
+RUN chmod +x /start.sh
+
+EXPOSE 8080
+
+CMD ["/start.sh"]
