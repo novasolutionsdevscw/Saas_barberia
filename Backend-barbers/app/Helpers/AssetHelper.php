@@ -11,7 +11,7 @@ class AssetHelper
     {
         $normalized = ltrim(str_replace('\\', '/', $storedPath), '/');
 
-        return rtrim(config('app.url'), '/').'/storage/'.$normalized;
+        return '/storage/'.$normalized;
     }
 
     /**
