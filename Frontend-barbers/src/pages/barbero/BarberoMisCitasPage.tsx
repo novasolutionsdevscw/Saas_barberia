@@ -7,18 +7,29 @@ import {
   Loader2,
   MessageCircle,
   QrCode,
+  XCircle,
 } from 'lucide-react';
 import { api, type BarberoTurno } from '../../services/api';
 import { Toast } from '../../components/ui/Toast';
 import { usePageToast } from '../../hooks/usePageToast';
 import { TurnoEstadoBadge } from '../../components/turnos/TurnoEstadoBadge';
-import { formatFecha, formatHora, formatPrecioTurno, isTurnoActivo } from '../../utils/turnos';
+import {
+  formatFecha,
+  formatHora,
+  formatPrecioTurno,
+  isTurnoActivo,
+  MOTIVOS_RECHAZO_PAGO,
+  requiereValidacionPago,
+} from '../../utils/turnos';
 import { buildWhatsAppUrl, enviarConfirmacionWhatsApp, openWhatsAppUrl } from '../../utils/whatsapp';
+import { mediaUrl } from '../../utils/mediaUrl';
 
 export function BarberoMisCitasPage() {
   const [turnos, setTurnos] = useState<BarberoTurno[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<number | null>(null);
+  const [rechazoId, setRechazoId] = useState<number | null>(null);
+  const [motivoRechazo, setMotivoRechazo] = useState(MOTIVOS_RECHAZO_PAGO[0].value);
   const { toast, showToast, hideToast } = usePageToast();
 
   const load = useCallback(async () => {
@@ -80,6 +91,58 @@ export function BarberoMisCitasPage() {
     }
   };
 
+  const aprobarPago = async (turno: BarberoTurno) => {
+    setActionId(turno.id);
+    try {
+      const res = await api.aprobarPagoBarbero(turno.id);
+      const clienteTelefono = res.cliente_telefono ?? turno.telefono;
+      const modo = await enviarConfirmacionWhatsApp({
+        whatsappUrl: res.whatsapp_url,
+        whatsappMensaje: res.whatsapp_mensaje,
+        clienteTelefono,
+        citaTarjetaUrl: res.cita_tarjeta_url ?? res.qr_url,
+      });
+      setTurnos((prev) =>
+        prev.map((t) =>
+          t.id === turno.id
+            ? { ...t, estado: 'confirmado' as const, cita_url: res.cita_url, whatsapp_url: res.whatsapp_url }
+            : t,
+        ),
+      );
+      showToast(
+        modo === 'wame' || modo === 'share'
+          ? 'Pago aprobado y cita confirmada. WhatsApp listo para el cliente.'
+          : res.message,
+        'success',
+      );
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Error al aprobar pago', 'error');
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const rechazarPago = async (turno: BarberoTurno) => {
+    setActionId(turno.id);
+    try {
+      const res = await api.rechazarPagoBarbero(turno.id, motivoRechazo);
+      setTurnos((prev) =>
+        prev.map((t) =>
+          t.id === turno.id
+            ? { ...t, estado: res.data.estado as BarberoTurno['estado'], pago_motivo_rechazo: res.data.pago_motivo_rechazo }
+            : t,
+        ),
+      );
+      setRechazoId(null);
+      showToast(res.message, 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Error al rechazar pago', 'error');
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const porValidarPago = turnos.filter((t) => requiereValidacionPago(t.estado));
   const pendientes = turnos.filter((t) => t.estado === 'pendiente');
   const proximas = turnos.filter((t) => t.estado === 'confirmado');
 
@@ -96,13 +159,69 @@ export function BarberoMisCitasPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Mis citas</h1>
-          <p className="text-slate-400">Confirma reservas y valida el servicio con QR</p>
+          <p className="text-slate-400">Valida pagos, confirma reservas y escanea QR</p>
         </div>
         <Link to="/dashboard/validar-qr" className="btn-primary">
           <QrCode className="h-4 w-4" />
           Escanear QR
         </Link>
       </div>
+
+      {porValidarPago.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-orange-400">
+            Validar comprobantes ({porValidarPago.length})
+          </h2>
+          <div className="grid gap-3">
+            {porValidarPago.map((t) => (
+              <CitaCard
+                key={t.id}
+                turno={t}
+                action={
+                  <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap">
+                    <button
+                      type="button"
+                      className="btn-primary text-sm"
+                      disabled={actionId === t.id}
+                      onClick={() => aprobarPago(t)}
+                    >
+                      {actionId === t.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                      Aprobar pago y confirmar
+                    </button>
+                    {rechazoId === t.id ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          className="input-field text-sm"
+                          value={motivoRechazo}
+                          onChange={(e) => setMotivoRechazo(e.target.value)}
+                        >
+                          {MOTIVOS_RECHAZO_PAGO.map((m) => (
+                            <option key={m.value} value={m.value}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button type="button" className="btn-ghost text-sm text-red-400" onClick={() => rechazarPago(t)}>
+                          Confirmar rechazo
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-ghost text-sm text-red-400"
+                        onClick={() => setRechazoId(t.id)}
+                      >
+                        <XCircle className="h-4 w-4" />
+                        Rechazar pago
+                      </button>
+                    )}
+                  </div>
+                }
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {pendientes.length > 0 && (
         <section className="space-y-3">
@@ -167,6 +286,8 @@ function CitaCard({
   turno: BarberoTurno;
   action?: React.ReactNode;
 }) {
+  const comprobanteSrc = turno.comprobante_url ? mediaUrl(turno.comprobante_url) : null;
+
   return (
     <article className="rounded-xl border border-white/8 bg-white/[0.02] p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -191,10 +312,23 @@ function CitaCard({
           <span className="text-slate-500">Precio: </span>
           <span className="text-indigo-300">{formatPrecioTurno(turno.precio)}</span>
         </div>
+        {turno.pago_monto_esperado != null && turno.pago_monto_esperado > 0 && (
+          <div>
+            <span className="text-slate-500">Monto pagado: </span>
+            <span className="text-amber-200">{formatPrecioTurno(turno.pago_monto_esperado)}</span>
+          </div>
+        )}
       </dl>
+      {comprobanteSrc && (
+        <img
+          src={comprobanteSrc}
+          alt="Comprobante"
+          className="mt-3 max-h-40 rounded-lg border border-white/10 object-contain"
+        />
+      )}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {action}
-        {isTurnoActivo(turno.estado) && turno.estado !== 'pendiente' && (
+        {isTurnoActivo(turno.estado) && turno.estado !== 'pendiente' && turno.estado !== 'pendiente_validacion' && (
           <>
             {turno.whatsapp_url && (
               <button

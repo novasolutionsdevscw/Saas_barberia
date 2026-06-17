@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Barbero;
 use App\Models\Servicio;
 use App\Models\Turno;
+use App\Services\PagoReservaService;
 use App\Services\TurnoService;
 use App\Services\TurnoCitaService;
 use App\Services\WhatsAppService;
@@ -16,6 +17,7 @@ class TurnoController extends Controller
     public function __construct(
         private readonly TurnoService $service,
         private readonly TurnoCitaService $citaService,
+        private readonly PagoReservaService $pagoReserva,
         private readonly WhatsAppService $whatsApp,
     ) {}
 
@@ -33,6 +35,7 @@ class TurnoController extends Controller
             ->get()
             ->map(function (Turno $turno) {
                 $data = $turno->toArray();
+                $data = array_merge($data, $this->pagoReserva->formatoPagoTurno($turno));
 
                 if (in_array($turno->estado, ['confirmado', 'completado'], true) && $turno->cliente) {
                     $data['whatsapp_url'] = $this->whatsApp->waMeConfirmacionTurno($turno);
@@ -99,7 +102,7 @@ class TurnoController extends Controller
             'cliente_id'  => 'sometimes|integer|exists:clientes,id',
             'fecha'       => 'sometimes|date',
             'hora'        => 'sometimes|date_format:H:i',
-            'estado'      => 'sometimes|in:pendiente,confirmado,cancelado,completado',
+            'estado'      => 'sometimes|in:esperando_pago,pendiente_validacion,pendiente,confirmado,cancelado,completado',
             'precio'      => 'sometimes|numeric|min:0',
         ]);
 
@@ -150,6 +153,42 @@ class TurnoController extends Controller
         ]);
     }
 
+    public function aprobarPago(Request $request, int $id)
+    {
+        $user = $this->authorizeAdmin($request);
+
+        $turno = Turno::where('barberia_id', $user->barberia_id)->findOrFail($id);
+        $result = $this->pagoReserva->aprobarPago($turno, $user);
+
+        return response()->json([
+            'message' => $result['mensaje'],
+            'whatsapp_url' => $result['whatsapp_url'],
+            'whatsapp_mensaje' => $result['whatsapp_mensaje'],
+            'cliente_telefono' => $result['cliente_telefono'],
+            'cita_url' => $result['cita_url'],
+            'qr_url' => $result['qr_url'] ?? null,
+            'cita_tarjeta_url' => $result['cita_tarjeta_url'] ?? $result['qr_url'] ?? null,
+            'data' => $this->citaService->formatoPublico($result['turno']),
+        ]);
+    }
+
+    public function rechazarPago(Request $request, int $id)
+    {
+        $user = $this->authorizeAdmin($request);
+
+        $validated = $request->validate([
+            'motivo' => 'required|string|in:'.implode(',', array_keys(PagoReservaService::MOTIVOS_RECHAZO)),
+        ]);
+
+        $turno = Turno::where('barberia_id', $user->barberia_id)->findOrFail($id);
+        $turno = $this->pagoReserva->rechazarPago($turno, $validated['motivo'], $user);
+
+        return response()->json([
+            'message' => 'Pago rechazado. El cliente puede subir un nuevo comprobante.',
+            'data' => $this->citaService->formatoPublico($turno),
+        ]);
+    }
+
     // ─────────────────────────────────────────
     // ADMIN: cambiar solo el estado
     // ─────────────────────────────────────────
@@ -160,7 +199,7 @@ class TurnoController extends Controller
         $turno = Turno::where('barberia_id', $user->barberia_id)->findOrFail($id);
 
         $validated = $request->validate([
-            'estado' => 'required|in:pendiente,confirmado,cancelado,completado',
+            'estado' => 'required|in:esperando_pago,pendiente_validacion,pendiente,confirmado,cancelado,completado',
         ]);
 
         $turno->estado = $validated['estado'];
@@ -230,7 +269,7 @@ class TurnoController extends Controller
         $ocupados = Turno::where('barberia_id', $barberia->id)
             ->where('barbero_id', $barberoId)
             ->where('fecha', $validated['fecha'])
-            ->whereIn('estado', ['pendiente', 'confirmado'])
+            ->bloqueanSlot()
             ->pluck('hora')
             ->map(fn($h) => substr($h, 0, 5))
             ->toArray();
@@ -284,7 +323,7 @@ class TurnoController extends Controller
 
         $turno = Turno::where('barberia_id', $barberia->id)
             ->where('uuid', $uuid)
-            ->whereIn('estado', ['pendiente', 'confirmado'])
+            ->whereIn('estado', ['esperando_pago', 'pendiente_validacion', 'pendiente', 'confirmado'])
             ->firstOrFail();
 
         if ($turno->cliente->telefono !== $validated['telefono']) {

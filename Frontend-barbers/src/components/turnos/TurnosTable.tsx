@@ -16,6 +16,8 @@ import {
   formatHora,
   formatPrecioTurno,
   isTurnoActivo,
+  MOTIVOS_RECHAZO_PAGO,
+  requiereValidacionPago,
 } from '../../utils/turnos';
 import type { Cliente } from '../../services/api';
 import { todayIsoDate } from '../../utils/horarios';
@@ -44,6 +46,8 @@ export function TurnosTable({ onToast }: Props) {
   const [cancelTarget, setCancelTarget] = useState<Turno | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [rechazoTarget, setRechazoTarget] = useState<Turno | null>(null);
+  const [motivoRechazo, setMotivoRechazo] = useState(MOTIVOS_RECHAZO_PAGO[0].value);
   const [clientes, setClientes] = useState<Cliente[]>([]);
 
   const hoy = todayIsoDate();
@@ -162,6 +166,51 @@ export function TurnosTable({ onToast }: Props) {
     }
   };
 
+  const handleAprobarPago = async (turno: Turno) => {
+    setConfirmingId(turno.id);
+    try {
+      const res = await api.aprobarPagoAdmin(turno.id);
+      const clienteTelefono = res.cliente_telefono ?? turno.cliente?.telefono;
+      await enviarConfirmacionWhatsApp({
+        whatsappUrl: res.whatsapp_url,
+        whatsappMensaje: res.whatsapp_mensaje,
+        clienteTelefono,
+        citaTarjetaUrl: res.cita_tarjeta_url ?? res.qr_url,
+      });
+      setTurnos((prev) =>
+        prev.map((t) =>
+          t.id === turno.id ? { ...t, estado: 'confirmado' as const, whatsapp_url: res.whatsapp_url } : t,
+        ),
+      );
+      onToast?.(res.message, 'success');
+    } catch (err) {
+      onToast?.(err instanceof Error ? err.message : 'Error al aprobar pago', 'error');
+    } finally {
+      setConfirmingId(null);
+    }
+  };
+
+  const handleRechazarPago = async () => {
+    if (!rechazoTarget) return;
+    setActionLoading(true);
+    try {
+      const res = await api.rechazarPagoAdmin(rechazoTarget.id, motivoRechazo);
+      setTurnos((prev) =>
+        prev.map((t) =>
+          t.id === rechazoTarget.id
+            ? { ...t, estado: res.data.estado as TurnoEstado, pago_motivo_rechazo: res.data.pago_motivo_rechazo }
+            : t,
+        ),
+      );
+      onToast?.(res.message, 'success');
+      setRechazoTarget(null);
+    } catch (err) {
+      onToast?.(err instanceof Error ? err.message : 'Error al rechazar pago', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleQuickEstado = async (turno: Turno, nuevoEstado: TurnoEstado) => {
     try {
       const res = await api.cambiarEstadoTurno(turno.id, nuevoEstado);
@@ -262,6 +311,25 @@ export function TurnosTable({ onToast }: Props) {
                   </div>
                 </dl>
                 <div className="mt-3 flex flex-wrap gap-2 border-t border-white/8 pt-3">
+                  {requiereValidacionPago(t.estado) && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-ghost px-2 py-1.5 text-xs text-emerald-400"
+                        disabled={confirmingId === t.id}
+                        onClick={() => handleAprobarPago(t)}
+                      >
+                        {confirmingId === t.id ? 'Procesando...' : 'Aprobar pago'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost px-2 py-1.5 text-xs text-red-400"
+                        onClick={() => setRechazoTarget(t)}
+                      >
+                        Rechazar pago
+                      </button>
+                    </>
+                  )}
                   {isTurnoActivo(t.estado) && t.estado === 'pendiente' && (
                     <button
                       type="button"
@@ -347,6 +415,35 @@ export function TurnosTable({ onToast }: Props) {
                   <td className="px-4 py-3 text-slate-300">{formatPrecioTurno(t.precio)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1">
+                      {requiereValidacionPago(t.estado) && (
+                        <>
+                          <Tooltip label="Aprobar pago y confirmar">
+                            <button
+                              type="button"
+                              className="btn-ghost p-2 text-emerald-400"
+                              disabled={confirmingId === t.id}
+                              onClick={() => handleAprobarPago(t)}
+                              aria-label="Aprobar pago"
+                            >
+                              {confirmingId === t.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Check className="h-4 w-4" />
+                              )}
+                            </button>
+                          </Tooltip>
+                          <Tooltip label="Rechazar comprobante">
+                            <button
+                              type="button"
+                              className="btn-ghost p-2 text-red-400"
+                              onClick={() => setRechazoTarget(t)}
+                              aria-label="Rechazar pago"
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </button>
+                          </Tooltip>
+                        </>
+                      )}
                       {isTurnoActivo(t.estado) && t.estado === 'pendiente' && (
                         <Tooltip label="Confirmar y abrir WhatsApp">
                           <button
@@ -466,6 +563,47 @@ export function TurnosTable({ onToast }: Props) {
             {cancelTarget && formatFecha(String(cancelTarget.fecha))} a las{' '}
             {cancelTarget && formatHora(String(cancelTarget.hora))}?
           </p>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!rechazoTarget}
+        onClose={() => !actionLoading && setRechazoTarget(null)}
+        title="Rechazar comprobante"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => setRechazoTarget(null)}
+              disabled={actionLoading}
+            >
+              Volver
+            </button>
+            <button
+              type="button"
+              className="btn-primary bg-red-600 hover:bg-red-500"
+              onClick={handleRechazarPago}
+              disabled={actionLoading}
+            >
+              {actionLoading ? 'Rechazando...' : 'Rechazar pago'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-slate-300">
+          <p>Indica el motivo del rechazo para {rechazoTarget?.cliente?.nombre}:</p>
+          <select
+            className="input-field w-full"
+            value={motivoRechazo}
+            onChange={(e) => setMotivoRechazo(e.target.value)}
+          >
+            {MOTIVOS_RECHAZO_PAGO.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
         </div>
       </Modal>
     </div>

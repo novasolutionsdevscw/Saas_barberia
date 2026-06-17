@@ -62,6 +62,12 @@ class ConfiguracionController extends Controller
             'instagram' => ['nullable', 'string', 'max:255'],
             'tiktok' => ['nullable', 'string', 'max:255'],
             'footer_texto' => ['nullable', 'string', 'max:500'],
+            'pago_modo' => ['nullable', 'string', 'in:sin_pago,abono,pago_total'],
+            'pago_nequi' => ['nullable', 'string', 'max:50'],
+            'pago_daviplata' => ['nullable', 'string', 'max:50'],
+            'pago_cuenta_bancaria' => ['nullable', 'string', 'max:500'],
+            'pago_monto_abono' => ['nullable', 'numeric', 'min:0'],
+            'pago_hold_minutos' => ['nullable', 'integer', 'min:5', 'max:60'],
         ]);
 
         $barberiaId = (int) $request->attributes->get('barberia_id');

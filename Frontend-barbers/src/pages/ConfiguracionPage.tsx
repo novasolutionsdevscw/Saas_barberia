@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink, Globe, ImagePlus, Images, Palette, Save, Share2, Sparkles, Type } from 'lucide-react';
+import { ChevronDown, ChevronUp, CreditCard, ExternalLink, Globe, ImagePlus, Images, Palette, Save, Share2, Sparkles, Type } from 'lucide-react';
 import { GaleriaConfigPanel } from '../components/config/GaleriaConfigPanel';
 import { api, type LandingConfig } from '../services/api';
 import { useAuth, type Barberia } from '../hooks/useAuth';
@@ -19,14 +19,21 @@ const defaultLanding: LandingConfig = {
   instagram: '',
   tiktok: '',
   footer_texto: '',
+  pago_modo: 'sin_pago',
+  pago_nequi: '',
+  pago_daviplata: '',
+  pago_cuenta_bancaria: '',
+  pago_monto_abono: '10000',
+  pago_hold_minutos: '15',
 };
 
-type TabId = 'marca' | 'apariencia' | 'contenido' | 'redes';
+type TabId = 'marca' | 'apariencia' | 'contenido' | 'pagos' | 'redes';
 
 const tabs: { id: TabId; label: string; icon: typeof Globe }[] = [
   { id: 'marca', label: 'Marca', icon: Globe },
   { id: 'apariencia', label: 'Apariencia', icon: Palette },
   { id: 'contenido', label: 'Contenido', icon: Type },
+  { id: 'pagos', label: 'Pagos', icon: CreditCard },
   { id: 'redes', label: 'Redes', icon: Share2 },
 ];
 
@@ -75,6 +82,12 @@ export function ConfiguracionPage() {
             instagram: data.landing.instagram ?? '',
             tiktok: data.landing.tiktok ?? '',
             footer_texto: data.landing.footer_texto ?? '',
+            pago_modo: data.landing.pago_modo ?? 'sin_pago',
+            pago_nequi: data.landing.pago_nequi ?? '',
+            pago_daviplata: data.landing.pago_daviplata ?? '',
+            pago_cuenta_bancaria: data.landing.pago_cuenta_bancaria ?? '',
+            pago_monto_abono: String(data.landing.pago_monto_abono ?? '10000'),
+            pago_hold_minutos: String(data.landing.pago_hold_minutos ?? '15'),
           });
         }
       } catch (err) {
@@ -274,6 +287,66 @@ export function ConfiguracionPage() {
               </div>
               <Input label="WhatsApp (573001234567)" value={landing.whatsapp} onChange={(e) => setLanding((l) => ({ ...l, whatsapp: e.target.value }))} />
               <Input label="Texto del footer" value={landing.footer_texto} onChange={(e) => setLanding((l) => ({ ...l, footer_texto: e.target.value }))} />
+            </section>
+          )}
+
+          {tab === 'pagos' && (
+            <section className="card space-y-4">
+              <h3 className="font-semibold text-white">Pago antes de agendar</h3>
+              <p className="text-sm text-slate-400">
+                El cliente transfiere a tu Nequi/Daviplata y sube el comprobante. Tú validas el pago
+                antes de confirmar la cita.
+              </p>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-300">Modo de reserva</label>
+                <select
+                  className="input-field w-full"
+                  value={landing.pago_modo ?? 'sin_pago'}
+                  onChange={(e) => setLanding((l) => ({ ...l, pago_modo: e.target.value as LandingConfig['pago_modo'] }))}
+                >
+                  <option value="sin_pago">Sin pago (solo confirmación del barbero)</option>
+                  <option value="abono">Abono fijo antes de agendar</option>
+                  <option value="pago_total">Pago total del servicio</option>
+                </select>
+              </div>
+              {landing.pago_modo === 'abono' && (
+                <Input
+                  label="Monto del abono (COP)"
+                  type="number"
+                  min={0}
+                  value={String(landing.pago_monto_abono ?? '')}
+                  onChange={(e) => setLanding((l) => ({ ...l, pago_monto_abono: e.target.value }))}
+                />
+              )}
+              <Input
+                label="Nequi"
+                value={landing.pago_nequi ?? ''}
+                onChange={(e) => setLanding((l) => ({ ...l, pago_nequi: e.target.value }))}
+                placeholder="300 123 4567"
+              />
+              <Input
+                label="Daviplata"
+                value={landing.pago_daviplata ?? ''}
+                onChange={(e) => setLanding((l) => ({ ...l, pago_daviplata: e.target.value }))}
+              />
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-300">Cuenta bancaria (opcional)</label>
+                <textarea
+                  rows={3}
+                  className="input-field resize-none"
+                  value={landing.pago_cuenta_bancaria ?? ''}
+                  onChange={(e) => setLanding((l) => ({ ...l, pago_cuenta_bancaria: e.target.value }))}
+                  placeholder="Banco, tipo de cuenta, número, titular..."
+                />
+              </div>
+              <Input
+                label="Minutos para subir comprobante"
+                type="number"
+                min={5}
+                max={60}
+                value={String(landing.pago_hold_minutos ?? '15')}
+                onChange={(e) => setLanding((l) => ({ ...l, pago_hold_minutos: e.target.value }))}
+              />
             </section>
           )}
 

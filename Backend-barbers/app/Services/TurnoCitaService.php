@@ -11,6 +11,7 @@ class TurnoCitaService
 {
     public function __construct(
         private readonly WhatsAppService $whatsApp,
+        private readonly PagoReservaService $pagoReserva,
     ) {}
 
     public function confirmar(Turno $turno, User $actor): array
@@ -186,6 +187,10 @@ class TurnoCitaService
             $acciones[] = 'cancelar';
         }
 
+        if ($turno->estado === 'pendiente_validacion') {
+            $acciones[] = 'cancelar';
+        }
+
         if (in_array($turno->estado, ['pendiente', 'confirmado'], true)) {
             $acciones[] = 'completar';
         }
@@ -224,7 +229,7 @@ class TurnoCitaService
     {
         $turno->load(['barbero', 'servicio', 'cliente', 'barberia']);
 
-        return [
+        return array_merge([
             'uuid' => $turno->uuid,
             'estado' => $turno->estado,
             'fecha' => $turno->fecha?->format('Y-m-d') ?? (string) $turno->fecha,
@@ -233,11 +238,13 @@ class TurnoCitaService
             'servicio' => $turno->servicio->nombre,
             'barbero' => $turno->barbero->nombre,
             'barberia' => $turno->barberia->nombre,
+            'barberia_slug' => $turno->barberia->slug,
             'cliente' => $turno->cliente->nombre,
+            'cliente_telefono' => $turno->cliente->telefono,
             'confirmado_at' => $turno->confirmado_at?->toIso8601String(),
             'validado_at' => $turno->validado_at?->toIso8601String(),
             'cita_url' => $this->whatsApp->urlCita($turno->uuid),
             'qr_payload' => $this->whatsApp->urlCita($turno->uuid),
-        ];
+        ], $this->pagoReserva->formatoPagoTurno($turno));
     }
 }

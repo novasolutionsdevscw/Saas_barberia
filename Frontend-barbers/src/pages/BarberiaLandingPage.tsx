@@ -77,6 +77,14 @@ export function BarberiaLandingPage() {
             whatsapp={whatsapp}
             barberos={data.barberos}
             servicios={servicios}
+            pagoConfig={{
+              pago_modo: (data.landing.pago_modo as 'sin_pago' | 'abono' | 'pago_total') ?? 'sin_pago',
+              pago_nequi: data.landing.pago_nequi,
+              pago_daviplata: data.landing.pago_daviplata,
+              pago_cuenta_bancaria: data.landing.pago_cuenta_bancaria,
+              pago_monto_abono: data.landing.pago_monto_abono,
+              pago_hold_minutos: data.landing.pago_hold_minutos,
+            }}
           />
         )}
         <GaleriaSection galeria={galeria} />

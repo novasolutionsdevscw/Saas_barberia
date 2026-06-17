@@ -1,5 +1,7 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://82.25.86.90:8081/api';
 
+export type PagoModo = 'sin_pago' | 'abono' | 'pago_total';
+
 export type LandingConfig = {
   color_principal: string;
   color_secundario: string;
@@ -11,6 +13,12 @@ export type LandingConfig = {
   instagram: string;
   tiktok: string;
   footer_texto: string;
+  pago_modo?: PagoModo;
+  pago_nequi?: string;
+  pago_daviplata?: string;
+  pago_cuenta_bancaria?: string;
+  pago_monto_abono?: string | number;
+  pago_hold_minutos?: string | number;
 };
 
 export type BarberiaPublica = {
@@ -180,10 +188,35 @@ type ReservaPublicaResponse = {
     precio: number;
     cita_url: string;
     qr_payload: string;
+    pago_monto_esperado?: number | null;
+    hold_expires_at?: string | null;
+    requiere_comprobante?: boolean;
+    requiere_pago?: boolean;
+    pago_modo?: PagoModo;
+    pago_nequi?: string;
+    pago_daviplata?: string;
+    pago_cuenta_bancaria?: string;
   };
 };
 
-export type TurnoEstado = 'pendiente' | 'confirmado' | 'cancelado' | 'completado';
+export type PagoTurnoInfo = {
+  pago_monto_esperado?: number | null;
+  comprobante_url?: string | null;
+  comprobante_subido_at?: string | null;
+  pago_motivo_rechazo?: string | null;
+  hold_expires_at?: string | null;
+  pago_validado_at?: string | null;
+  requiere_comprobante?: boolean;
+  pendiente_validacion?: boolean;
+};
+
+export type TurnoEstado =
+  | 'esperando_pago'
+  | 'pendiente_validacion'
+  | 'pendiente'
+  | 'confirmado'
+  | 'cancelado'
+  | 'completado';
 
 export type Turno = {
   id: number;
@@ -200,7 +233,7 @@ export type Turno = {
   servicio?: Pick<Servicio, 'id' | 'nombre' | 'precio'>;
   cliente?: Cliente;
   whatsapp_url?: string | null;
-};
+} & PagoTurnoInfo;
 
 type TurnoMutationResponse = {
   message: string;
@@ -263,12 +296,14 @@ export type CitaPublica = {
   servicio: string;
   barbero: string;
   barberia: string;
+  barberia_slug?: string;
   cliente: string;
+  cliente_telefono?: string;
   confirmado_at?: string | null;
   validado_at?: string | null;
   cita_url: string;
   qr_payload: string;
-};
+} & PagoTurnoInfo;
 
 export type QrAccion = 'confirmar' | 'completar' | 'cancelar';
 
@@ -315,7 +350,7 @@ export type BarberoTurno = {
   validado_at?: string | null;
   cita_url: string;
   whatsapp_url?: string | null;
-};
+} & PagoTurnoInfo;
 
 export type BarberiaMatriz = {
   id: number;
@@ -800,6 +835,22 @@ export const api = {
     });
   },
 
+  subirComprobanteTurno(slug: string, uuid: string, telefono: string, file: File) {
+    const formData = new FormData();
+    formData.append('telefono', telefono);
+    formData.append('comprobante', file);
+
+    return request<{
+      message: string;
+      whatsapp_barbero_url?: string | null;
+      data: CitaPublica;
+    }>(`/public/b/${slug}/turnos/${uuid}/comprobante`, {
+      method: 'POST',
+      body: formData,
+      headers: {},
+    });
+  },
+
   getPublicServicios(apiKey: string) {
     return publicRequest<PublicServiciosResponse>('/public/servicios', apiKey);
   },
@@ -1105,9 +1156,35 @@ export const api = {
     });
   },
 
+  aprobarPagoBarbero(id: number) {
+    return request<ConfirmarTurnoResponse>(`/barbero/turnos/${id}/aprobar-pago`, {
+      method: 'POST',
+    });
+  },
+
+  rechazarPagoBarbero(id: number, motivo: string) {
+    return request<{ message: string; data: CitaPublica }>(`/barbero/turnos/${id}/rechazar-pago`, {
+      method: 'POST',
+      body: JSON.stringify({ motivo }),
+    });
+  },
+
   confirmarTurnoAdmin(id: number) {
     return request<ConfirmarTurnoResponse>(`/admin/turnos/${id}/confirmar`, {
       method: 'POST',
+    });
+  },
+
+  aprobarPagoAdmin(id: number) {
+    return request<ConfirmarTurnoResponse>(`/admin/turnos/${id}/aprobar-pago`, {
+      method: 'POST',
+    });
+  },
+
+  rechazarPagoAdmin(id: number, motivo: string) {
+    return request<{ message: string; data: CitaPublica }>(`/admin/turnos/${id}/rechazar-pago`, {
+      method: 'POST',
+      body: JSON.stringify({ motivo }),
     });
   },
 

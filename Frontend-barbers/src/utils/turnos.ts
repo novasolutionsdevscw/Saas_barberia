@@ -1,11 +1,20 @@
 import type { Cliente, Turno, TurnoEstado } from '../services/api';
 
 export const ESTADOS_TURNO: { value: TurnoEstado; label: string }[] = [
+  { value: 'esperando_pago', label: 'Esperando pago' },
+  { value: 'pendiente_validacion', label: 'Validar pago' },
   { value: 'pendiente', label: 'Pendiente' },
   { value: 'confirmado', label: 'Confirmado' },
   { value: 'completado', label: 'Completado' },
   { value: 'cancelado', label: 'Cancelado' },
 ];
+
+export const MOTIVOS_RECHAZO_PAGO = [
+  { value: 'comprobante_ilegible', label: 'Comprobante ilegible' },
+  { value: 'pago_no_encontrado', label: 'Pago no encontrado' },
+  { value: 'valor_incorrecto', label: 'Valor incorrecto' },
+  { value: 'horario_ocupado', label: 'Horario ya no disponible' },
+] as const;
 
 export function formatHora(hora: string): string {
   if (!hora) return '—';
@@ -70,5 +79,14 @@ export function buildClientesResumen(turnos: Turno[]): ClienteResumen[] {
 }
 
 export function isTurnoActivo(estado: TurnoEstado): boolean {
-  return estado === 'pendiente' || estado === 'confirmado';
+  return (
+    estado === 'esperando_pago' ||
+    estado === 'pendiente_validacion' ||
+    estado === 'pendiente' ||
+    estado === 'confirmado'
+  );
+}
+
+export function requiereValidacionPago(estado: TurnoEstado): boolean {
+  return estado === 'pendiente_validacion';
 }

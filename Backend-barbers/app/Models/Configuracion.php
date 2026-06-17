@@ -27,6 +27,18 @@ class Configuracion extends Model
 
     public const CLAVE_FOOTER_TEXTO = 'footer_texto';
 
+    public const CLAVE_PAGO_MODO = 'pago_modo';
+
+    public const CLAVE_PAGO_NEQUI = 'pago_nequi';
+
+    public const CLAVE_PAGO_DAVIPLATA = 'pago_daviplata';
+
+    public const CLAVE_PAGO_CUENTA = 'pago_cuenta_bancaria';
+
+    public const CLAVE_PAGO_MONTO_ABONO = 'pago_monto_abono';
+
+    public const CLAVE_PAGO_HOLD_MINUTOS = 'pago_hold_minutos';
+
     public const DEFAULTS = [
         self::CLAVE_COLOR_PRINCIPAL => '#6366f1',
         self::CLAVE_COLOR_SECUNDARIO => '#1e1b4b',
@@ -38,6 +50,12 @@ class Configuracion extends Model
         self::CLAVE_INSTAGRAM => '',
         self::CLAVE_TIKTOK => '',
         self::CLAVE_FOOTER_TEXTO => '',
+        self::CLAVE_PAGO_MODO => 'sin_pago',
+        self::CLAVE_PAGO_NEQUI => '',
+        self::CLAVE_PAGO_DAVIPLATA => '',
+        self::CLAVE_PAGO_CUENTA => '',
+        self::CLAVE_PAGO_MONTO_ABONO => '10000',
+        self::CLAVE_PAGO_HOLD_MINUTOS => '15',
     ];
 
     protected $table = 'configuraciones';

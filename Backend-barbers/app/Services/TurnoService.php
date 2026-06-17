@@ -17,14 +17,7 @@ class TurnoService
      */
     public function crearPublico(array $data): Turno
     {
-        $this->validarHorarioBarbero($data['barbero_id'], $data['fecha'], $data['hora']);
-
-        $this->validarDisponibilidad(
-            barberoId:  $data['barbero_id'],
-            barberiaId: $data['barberia_id'],
-            fecha:      $data['fecha'],
-            hora:       $data['hora'],
-        );
+        $this->validarCreacionPublica($data);
 
         $cliente = $this->resolverCliente($data);
 
@@ -39,6 +32,28 @@ class TurnoService
             'precio'      => $this->resolverPrecio($data),
             'estado'      => 'pendiente',
         ]);
+    }
+
+    public function validarCreacionPublica(array $data): void
+    {
+        $this->validarHorarioBarbero($data['barbero_id'], $data['fecha'], $data['hora']);
+
+        $this->validarDisponibilidad(
+            barberoId:  $data['barbero_id'],
+            barberiaId: $data['barberia_id'],
+            fecha:      $data['fecha'],
+            hora:       $data['hora'],
+        );
+    }
+
+    public function resolverClientePublico(array $data): Cliente
+    {
+        return $this->resolverCliente($data);
+    }
+
+    public function resolverPrecioPublico(array $data): float
+    {
+        return $this->resolverPrecio($data);
     }
 
     /**
@@ -208,7 +223,7 @@ class TurnoService
             ->where('barbero_id', $barberoId)
             ->where('fecha', $fecha)
             ->where('hora', $hora)
-            ->whereIn('estado', ['pendiente', 'confirmado']);
+            ->bloqueanSlot();
 
         if ($exceptoId) {
             $query->where('id', '!=', $exceptoId);

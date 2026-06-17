@@ -134,14 +134,16 @@ class CitaTarjetaService
         $label = match ($estado) {
             'confirmado' => 'Confirmado',
             'pendiente' => 'Pendiente',
+            'pendiente_validacion' => 'Validar pago',
+            'esperando_pago' => 'Esperando pago',
             'cancelado' => 'Cancelado',
             'completado' => 'Completado',
-            default => ucfirst($estado),
+            default => ucfirst(str_replace('_', ' ', $estado)),
         };
 
         $badgeColor = match ($estado) {
             'confirmado', 'completado' => $this->color($img, '#6366f1'),
-            'pendiente' => $this->color($img, '#d97706'),
+            'pendiente', 'pendiente_validacion', 'esperando_pago' => $this->color($img, '#d97706'),
             'cancelado' => $this->color($img, '#dc2626'),
             default => $this->color($img, '#6366f1'),
         };

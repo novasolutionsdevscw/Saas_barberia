@@ -34,6 +34,7 @@ Route::get('/public/barberia/{id}', [PublicBarberiaController::class, 'show']);
 Route::get('/public/b/{slug}', [PublicBarberiaController::class, 'showBySlug']);
 Route::get('/public/b/{slug}/barberos/{uuid}/disponibilidad', [PublicBarberiaController::class, 'disponibilidad']);
 Route::post('/public/b/{slug}/turnos', [PublicBarberiaController::class, 'storeTurno']);
+Route::post('/public/b/{slug}/turnos/{uuid}/comprobante', [PublicBarberiaController::class, 'subirComprobante']);
 Route::get('/public/cita/{uuid}', [PublicCitaController::class, 'show']);
 
 Route::middleware(['throttle:60,1', ResolveBarberiaByApiKey::class])->group(function () {
@@ -94,6 +95,8 @@ Route::middleware([
         Route::get('/{id}',          [TurnoController::class, 'show']);
         Route::post('/',             [TurnoController::class, 'store']);
         Route::post('/{id}/confirmar', [TurnoController::class, 'confirmar']);
+        Route::post('/{id}/aprobar-pago', [TurnoController::class, 'aprobarPago']);
+        Route::post('/{id}/rechazar-pago', [TurnoController::class, 'rechazarPago']);
         Route::put('/{id}',          [TurnoController::class, 'update']);
         Route::delete('/{id}',       [TurnoController::class, 'destroy']);
         Route::patch('/{id}/estado', [TurnoController::class, 'cambiarEstado']);
@@ -104,6 +107,8 @@ Route::middleware([
         Route::put('/perfil', [BarberoPanelController::class, 'updatePerfil']);
         Route::get('/mis-turnos', [BarberoPanelController::class, 'misTurnos']);
         Route::post('/turnos/{id}/confirmar', [BarberoPanelController::class, 'confirmarTurno']);
+        Route::post('/turnos/{id}/aprobar-pago', [BarberoPanelController::class, 'aprobarPago']);
+        Route::post('/turnos/{id}/rechazar-pago', [BarberoPanelController::class, 'rechazarPago']);
         Route::post('/turnos/consultar-qr', [BarberoPanelController::class, 'consultarQr']);
         Route::post('/turnos/validar-qr', [BarberoPanelController::class, 'validarQr']);
     });

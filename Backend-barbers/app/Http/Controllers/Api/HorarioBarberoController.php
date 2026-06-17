@@ -159,7 +159,7 @@ class HorarioBarberoController extends Controller
         // 3. Obtener horas ya ocupadas en esa fecha
         $horasOcupadas = Turno::where('barbero_id', $barbero->id)
             ->where('fecha', $fecha)
-            ->whereIn('estado', ['pendiente', 'confirmado'])
+            ->bloqueanSlot()
             ->pluck('hora')
             ->map(fn($h) => substr($h, 0, 5))
             ->toArray();

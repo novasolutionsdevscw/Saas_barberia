@@ -7,6 +7,7 @@ use App\Models\Barbero;
 use App\Models\Turno;
 use App\Models\User;
 use App\Services\FrontendUrlResolver;
+use App\Services\PagoReservaService;
 use App\Services\TurnoCitaService;
 use App\Services\WhatsAppService;
 use Illuminate\Http\Request;
@@ -16,6 +17,7 @@ class BarberoPanelController extends Controller
 {
     public function __construct(
         private readonly TurnoCitaService $citaService,
+        private readonly PagoReservaService $pagoReserva,
         private readonly WhatsAppService $whatsApp,
         private readonly FrontendUrlResolver $frontendUrl,
     ) {}
@@ -61,7 +63,7 @@ class BarberoPanelController extends Controller
             ->orderByDesc('fecha')
             ->orderByDesc('hora')
             ->get()
-            ->map(fn (Turno $t) => [
+            ->map(fn (Turno $t) => array_merge([
                 'id' => $t->id,
                 'uuid' => $t->uuid,
                 'fecha' => $t->fecha?->format('Y-m-d') ?? (string) $t->fecha,
@@ -77,7 +79,7 @@ class BarberoPanelController extends Controller
                 'whatsapp_url' => $t->estado === 'confirmado'
                     ? $this->whatsApp->waMeConfirmacionTurno($t)
                     : null,
-            ]);
+            ], $this->pagoReserva->formatoPagoTurno($t)));
 
         return response()->json(['turnos' => $turnos]);
     }
@@ -102,6 +104,50 @@ class BarberoPanelController extends Controller
             'qr_url' => $result['qr_url'] ?? null,
             'cita_tarjeta_url' => $result['cita_tarjeta_url'] ?? $result['qr_url'] ?? null,
             'data' => $this->citaService->formatoPublico($result['turno']),
+        ]);
+    }
+
+    public function aprobarPago(Request $request, int $id)
+    {
+        $user = $request->attributes->get('user');
+        $barbero = $this->resolveBarbero($request);
+
+        $turno = Turno::where('barberia_id', $barbero->barberia_id)
+            ->where('barbero_id', $barbero->id)
+            ->findOrFail($id);
+
+        $result = $this->pagoReserva->aprobarPago($turno, $user);
+
+        return response()->json([
+            'message' => $result['mensaje'],
+            'whatsapp_url' => $result['whatsapp_url'],
+            'whatsapp_mensaje' => $result['whatsapp_mensaje'],
+            'cliente_telefono' => $result['cliente_telefono'],
+            'cita_url' => $result['cita_url'],
+            'qr_url' => $result['qr_url'] ?? null,
+            'cita_tarjeta_url' => $result['cita_tarjeta_url'] ?? $result['qr_url'] ?? null,
+            'data' => $this->citaService->formatoPublico($result['turno']),
+        ]);
+    }
+
+    public function rechazarPago(Request $request, int $id)
+    {
+        $user = $request->attributes->get('user');
+        $barbero = $this->resolveBarbero($request);
+
+        $validated = $request->validate([
+            'motivo' => 'required|string|in:'.implode(',', array_keys(PagoReservaService::MOTIVOS_RECHAZO)),
+        ]);
+
+        $turno = Turno::where('barberia_id', $barbero->barberia_id)
+            ->where('barbero_id', $barbero->id)
+            ->findOrFail($id);
+
+        $turno = $this->pagoReserva->rechazarPago($turno, $validated['motivo'], $user);
+
+        return response()->json([
+            'message' => 'Pago rechazado. El cliente puede subir un nuevo comprobante.',
+            'data' => $this->citaService->formatoPublico($turno),
         ]);
     }
 

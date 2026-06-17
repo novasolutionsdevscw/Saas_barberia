@@ -17,15 +17,25 @@ class Turno extends Model
         'hora',
         'estado',
         'precio',
+        'pago_monto_esperado',
+        'comprobante_url',
+        'comprobante_subido_at',
+        'pago_motivo_rechazo',
+        'hold_expires_at',
+        'pago_validado_at',
         'confirmado_at',
         'validado_at',
     ];
 
     protected $casts = [
-        'fecha'         => 'date:Y-m-d',
-        'precio'        => 'decimal:2',
-        'confirmado_at' => 'datetime',
-        'validado_at'   => 'datetime',
+        'fecha'                 => 'date:Y-m-d',
+        'precio'                => 'decimal:2',
+        'pago_monto_esperado'   => 'decimal:2',
+        'comprobante_subido_at' => 'datetime',
+        'hold_expires_at'       => 'datetime',
+        'pago_validado_at'      => 'datetime',
+        'confirmado_at'         => 'datetime',
+        'validado_at'           => 'datetime',
     ];
 
     // ─── Relaciones ───────────────────────────
@@ -54,7 +64,21 @@ class Turno extends Model
 
     public function scopeActivos($query)
     {
-        return $query->whereIn('estado', ['pendiente', 'confirmado']);
+        return $query->whereIn('estado', ['pendiente_validacion', 'pendiente', 'confirmado']);
+    }
+
+    public function scopeBloqueanSlot($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereIn('estado', ['pendiente_validacion', 'pendiente', 'confirmado'])
+                ->orWhere(function ($q2) {
+                    $q2->where('estado', 'esperando_pago')
+                        ->where(function ($q3) {
+                            $q3->whereNull('hold_expires_at')
+                                ->orWhere('hold_expires_at', '>', now());
+                        });
+                });
+        });
     }
 
     public function scopeDeHoy($query)

@@ -5,14 +5,16 @@ import {
   CalendarCheck,
   Check,
   Clock,
+  CreditCard,
   Loader2,
   Scissors,
+  Upload,
   User,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { QrCodeDisplay } from '../ui/QrCodeDisplay';
 import { MediaImage } from '../ui/MediaImage';
-import { api, type BarberoPublico, type ServicioPublico } from '../../services/api';
+import { api, type BarberoPublico, type LandingConfig, type ServicioPublico } from '../../services/api';
 import { formatPrecio } from '../../utils/format';
 import { todayIsoDate } from '../../utils/horarios';
 import { formatFecha } from '../../utils/turnos';
@@ -25,15 +27,25 @@ type ReservaSectionProps = {
   whatsapp: string;
   barberos: BarberoPublico[];
   servicios: ServicioPublico[];
+  pagoConfig: Pick<
+    LandingConfig,
+    | 'pago_modo'
+    | 'pago_nequi'
+    | 'pago_daviplata'
+    | 'pago_cuenta_bancaria'
+    | 'pago_monto_abono'
+    | 'pago_hold_minutos'
+  >;
 };
 
-type Paso = 'servicio' | 'barbero' | 'datos' | 'confirmacion';
+type Paso = 'servicio' | 'barbero' | 'datos' | 'pago' | 'confirmacion';
 
-const PASOS: { id: Paso; label: string; num: number }[] = [
+const PASOS_BASE: { id: Paso; label: string; num: number }[] = [
   { id: 'servicio', label: 'Servicio', num: 1 },
   { id: 'barbero', label: 'Barbero y hora', num: 2 },
   { id: 'datos', label: 'Tus datos', num: 3 },
-  { id: 'confirmacion', label: 'Confirmación', num: 4 },
+  { id: 'pago', label: 'Pago', num: 4 },
+  { id: 'confirmacion', label: 'Confirmación', num: 5 },
 ];
 
 type ReservaOk = {
@@ -45,6 +57,10 @@ type ReservaOk = {
   hora: string;
   barbero: string;
   cliente: string;
+  estado: string;
+  pago_monto_esperado?: number | null;
+  hold_expires_at?: string | null;
+  pendienteValidacion?: boolean;
 };
 
 export function ReservaSection({
@@ -52,7 +68,15 @@ export function ReservaSection({
   barberiaNombre,
   barberos,
   servicios,
-}: Pick<ReservaSectionProps, 'slug' | 'barberiaNombre' | 'barberos' | 'servicios'>) {
+  pagoConfig,
+}: Pick<ReservaSectionProps, 'slug' | 'barberiaNombre' | 'barberos' | 'servicios' | 'pagoConfig'>) {
+  const requierePago =
+    pagoConfig.pago_modo === 'abono' || pagoConfig.pago_modo === 'pago_total';
+
+  const PASOS = requierePago
+    ? PASOS_BASE
+    : PASOS_BASE.filter((p) => p.id !== 'pago').map((p, i) => ({ ...p, num: i + 1 }));
+
   const [paso, setPaso] = useState<Paso>('servicio');
   const [slideKey, setSlideKey] = useState(0);
 
@@ -77,6 +101,9 @@ export function ReservaSection({
   const [reservaOk, setReservaOk] = useState<ReservaOk | null>(null);
   const [error, setError] = useState('');
   const [qrDownloadMsg, setQrDownloadMsg] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [comprobanteFile, setComprobanteFile] = useState<File | null>(null);
+  const [loadingComprobante, setLoadingComprobante] = useState(false);
+  const [holdRestante, setHoldRestante] = useState('');
 
   const servicioSel = servicios.find((s) => s.uuid === servicioUuid);
   const barberoSel = barberos.find((b) => b.uuid === barberoUuid);
@@ -144,6 +171,38 @@ export function ReservaSection({
     }
   }, [paso, barberoUuid, fecha, consultarDisponibilidad]);
 
+  useEffect(() => {
+    if (paso !== 'pago' || !reservaOk?.hold_expires_at) {
+      setHoldRestante('');
+      return;
+    }
+
+    const tick = () => {
+      const diff = new Date(reservaOk.hold_expires_at!).getTime() - Date.now();
+      if (diff <= 0) {
+        setHoldRestante('Expirado');
+        return;
+      }
+      const min = Math.floor(diff / 60000);
+      const sec = Math.floor((diff % 60000) / 1000);
+      setHoldRestante(`${min}:${sec.toString().padStart(2, '0')}`);
+    };
+
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [paso, reservaOk?.hold_expires_at]);
+
+  const montoPago = useMemo(() => {
+    if (!servicioSel) return 0;
+    if (pagoConfig.pago_modo === 'pago_total') return servicioSel.precio;
+    if (pagoConfig.pago_modo === 'abono') {
+      const n = Number(pagoConfig.pago_monto_abono);
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  }, [pagoConfig, servicioSel]);
+
   const puedeIrADatos = Boolean(barberoUuid && fecha && hora && disponibilidad?.disponible);
 
   const reservar = async (e: FormEvent) => {
@@ -176,8 +235,15 @@ export function ReservaSection({
         hora: res.data.hora,
         barbero: res.data.barbero,
         cliente: nombre.trim(),
+        estado: res.data.estado,
+        pago_monto_esperado: res.data.pago_monto_esperado,
+        hold_expires_at: res.data.hold_expires_at,
       });
-      irAPaso('confirmacion');
+      if (res.data.estado === 'esperando_pago') {
+        irAPaso('pago');
+      } else {
+        irAPaso('confirmacion');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo reservar');
     } finally {
@@ -199,6 +265,36 @@ export function ReservaSection({
     setDisponibilidad(null);
     setReservaOk(null);
     setError('');
+    setComprobanteFile(null);
+    setHoldRestante('');
+  };
+
+  const subirComprobante = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!reservaOk || !comprobanteFile) {
+      setError('Selecciona una imagen del comprobante');
+      return;
+    }
+
+    setLoadingComprobante(true);
+    setError('');
+    try {
+      const res = await api.subirComprobanteTurno(slug, reservaOk.uuid, telefono.trim(), comprobanteFile);
+      if (res.whatsapp_barbero_url) {
+        window.open(res.whatsapp_barbero_url, '_blank', 'noopener,noreferrer');
+      }
+      setReservaOk({
+        ...reservaOk,
+        estado: res.data.estado,
+        pendienteValidacion: true,
+        hold_expires_at: null,
+      });
+      irAPaso('confirmacion');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo subir el comprobante');
+    } finally {
+      setLoadingComprobante(false);
+    }
   };
 
   if (barberos.length === 0 || servicios.length === 0) return null;
@@ -527,7 +623,86 @@ export function ReservaSection({
                     ) : (
                       <CalendarCheck className="h-4 w-4" />
                     )}
-                    {loadingReserva ? 'Agendando...' : 'Agendar cita'}
+                    {loadingReserva ? 'Agendando...' : requierePago ? 'Continuar al pago' : 'Agendar cita'}
+                  </button>
+                </form>
+              )}
+
+              {paso === 'pago' && reservaOk && (
+                <form onSubmit={subirComprobante} className="space-y-5">
+                  <div>
+                    <h3 className="text-xl font-bold text-white">Realiza el pago</h3>
+                    <p className="mt-1 text-sm text-slate-400">
+                      Transfiere {formatPrecio(montoPago || reservaOk.pago_monto_esperado || 0)} y sube el
+                      comprobante para confirmar tu cita.
+                    </p>
+                    {holdRestante && (
+                      <p className="mt-2 text-sm text-amber-200">
+                        Tiempo restante para subir comprobante: <strong>{holdRestante}</strong>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-sm">
+                    <div className="flex items-center gap-2 font-medium text-white">
+                      <CreditCard className="h-4 w-4 text-[var(--landing-primary)]" />
+                      Datos de pago
+                    </div>
+                    {pagoConfig.pago_nequi && (
+                      <p>
+                        <span className="text-slate-500">Nequi: </span>
+                        <span className="font-medium text-slate-200">{pagoConfig.pago_nequi}</span>
+                      </p>
+                    )}
+                    {pagoConfig.pago_daviplata && (
+                      <p>
+                        <span className="text-slate-500">Daviplata: </span>
+                        <span className="font-medium text-slate-200">{pagoConfig.pago_daviplata}</span>
+                      </p>
+                    )}
+                    {pagoConfig.pago_cuenta_bancaria && (
+                      <p className="whitespace-pre-wrap text-slate-200">{pagoConfig.pago_cuenta_bancaria}</p>
+                    )}
+                    {!pagoConfig.pago_nequi &&
+                      !pagoConfig.pago_daviplata &&
+                      !pagoConfig.pago_cuenta_bancaria && (
+                        <p className="text-amber-200">
+                          La barbería aún no configuró cuentas de pago. Contacta por WhatsApp.
+                        </p>
+                      )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="comprobante" className="text-sm font-medium text-slate-300">
+                      Comprobante de pago
+                    </label>
+                    <input
+                      id="comprobante"
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setComprobanteFile(e.target.files?.[0] ?? null)}
+                      className="input-field w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[var(--landing-primary)] file:px-3 file:py-2 file:text-white"
+                      required
+                    />
+                  </div>
+
+                  {error && (
+                    <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                      {error}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={loadingComprobante || holdRestante === 'Expirado'}
+                    className="btn-primary w-full justify-center"
+                  >
+                    {loadingComprobante ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    {loadingComprobante ? 'Subiendo...' : 'Enviar comprobante'}
                   </button>
                 </form>
               )}
@@ -538,9 +713,19 @@ export function ReservaSection({
                     <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
                       <Check className="h-6 w-6" />
                     </div>
-                    <h3 className="text-xl font-bold text-white">¡Cita agendada!</h3>
+                    <h3 className="text-xl font-bold text-white">
+                      {reservaOk.pendienteValidacion
+                        ? '¡Comprobante enviado!'
+                        : reservaOk.estado === 'esperando_pago'
+                          ? 'Reserva iniciada'
+                          : '¡Cita agendada!'}
+                    </h3>
                     <p className="mt-2 text-sm text-slate-400">
-                      El barbero confirmará y te contactará por WhatsApp con tu QR.
+                      {reservaOk.pendienteValidacion
+                        ? 'La barbería validará tu pago y te confirmará por WhatsApp.'
+                        : reservaOk.estado === 'esperando_pago'
+                          ? 'Completa el pago para confirmar tu cita.'
+                          : 'El barbero confirmará y te contactará por WhatsApp con tu QR.'}
                     </p>
                   </div>
 
@@ -569,20 +754,24 @@ export function ReservaSection({
                     </dl>
 
                     <div className="border-t border-white/8 bg-white/[0.02] px-5 py-6">
-                      <p className="mb-4 text-center text-xs text-slate-400">
-                        Presenta este código QR al barbero
-                      </p>
-                      <div className="flex w-full justify-center overflow-hidden">
-                        <QrCodeDisplay
-                          value={reservaOk.qr_payload}
-                          size={200}
-                          showDownload
-                          downloadFileName={`cita-${reservaOk.uuid}`}
-                          onDownloadMessage={(message, type) => setQrDownloadMsg({ message, type })}
-                        />
-                      </div>
-                      {qrDownloadMsg?.type === 'error' && (
-                        <p className="mt-3 text-center text-xs text-red-300">{qrDownloadMsg.message}</p>
+                      {!reservaOk.pendienteValidacion && reservaOk.estado !== 'esperando_pago' && (
+                        <>
+                          <p className="mb-4 text-center text-xs text-slate-400">
+                            Presenta este código QR al barbero
+                          </p>
+                          <div className="flex w-full justify-center overflow-hidden">
+                            <QrCodeDisplay
+                              value={reservaOk.qr_payload}
+                              size={200}
+                              showDownload
+                              downloadFileName={`cita-${reservaOk.uuid}`}
+                              onDownloadMessage={(message, type) => setQrDownloadMsg({ message, type })}
+                            />
+                          </div>
+                          {qrDownloadMsg?.type === 'error' && (
+                            <p className="mt-3 text-center text-xs text-red-300">{qrDownloadMsg.message}</p>
+                          )}
+                        </>
                       )}
                       <Link
                         to={`/cita/${reservaOk.uuid}`}
